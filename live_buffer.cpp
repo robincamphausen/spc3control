@@ -23,11 +23,36 @@
 #define MILLIS 1
 #endif
 
-int NdetsFilter(int Ndets, int ImgSize, int* NdetsCoords, unsigned char* buffercopy)
+//define function to only keep those frames with certain number of detections:
+int NdetsFilter(const int Ndets,const int ImgSize, std::vector<int> NdetsCoords, unsigned char* buffercopy)
 {
+	//make sure to pass NdetsCoords as reference
+	//make sure buffer copy is correct at input
 	int detsThisFrame = 0;
 	int output = 0;
-
+	
+	for (int i = 0; i < ImgSize; i++)
+	{
+		if (*buffercopy > 1) {
+			// multiple dets on same pixel (should never be possible for int time < dead time)
+			output = 3;
+			break;
+		}
+		else if (*buffercopy == 1) {
+			detsThisFrame++;
+			if (detsThisFrame > Ndets) {
+				// more than Ndets detections
+				output = 2;
+				break;
+			}
+			NdetsCoords[detsThisFrame - 1] = i;
+		}
+		buffercopy++;
+	}
+	if (detsThisFrame < Ndets) {
+		output = 1;
+	}
+	
 	return output;
 }
 
@@ -38,20 +63,21 @@ int main(void)
 	//-----------------------------
 	SPC3_H spc3 = NULL;
 	UInt16* Img = NULL;// , hist[65535], AppliedDT = 0;
-	char header[1024] = "";
+	//char header[1024] = "";
 	int integFrames = 10;
 	double read_bytes = 0, total_bytes = 0;
 	int i = 0, j = 0, k = 0, out = 0;
 	short trig = 0;
 	double gateoff = 0;
-	double *x = NULL, *y = NULL, *Imgd = NULL;
 	double* data = NULL;
 	char c = 0, *fname = NULL;
 	BUFFER_H buffer = NULL;
 	FILE* f = NULL;
-	//time_t start, stop;
-	//int* intBuffer;
 
+	//define pointer where we can duplicate buffer:
+	unsigned char* dupBuffer_p = NULL;
+	unsigned char* dupBuffer_p2 = NULL; //make another buffer pointer for printing out values (can get rid of this later)
+	
 	Img = (UInt16*)calloc(1, 2048 * sizeof(UInt16));
 
 	//SPC3 constructor and parameter setting (make sure you check the SPC3 ID)
@@ -75,12 +101,6 @@ int main(void)
 	SPC3_Set_DeadTime(spc3, 100);
 	SPC3_Apply_settings(spc3);
 
-	printf("Continuous acquisition will be started and 10 memory dumps performed.\n");
-
-	//define pointer where we can duplicate buffer:
-	unsigned char* dupBuffer_p = NULL;
-	unsigned char* dupBuffer_p2 = NULL; //make another buffer pointer for printing out values (can get rid of this later)
-
 	//start continuous acquisition
 	
 	SPC3_Start_ContAcq_in_Memory(spc3);
@@ -96,32 +116,39 @@ int main(void)
 			double numFramesdbl = read_bytes / 2048;
 			numFramesdbl += 0.5;
 			int numFrames = (int)numFramesdbl; //cast numFramesRead as integer
-			printf("Acquired %d frames this iteration\n", numFrames, i);
+			printf("Acquired %d frames this iteration\n", numFrames);
 
 			//check if buffer overwrites on each call of SPC3_Get_Memory_Buffer() - yes it does
 			if (read_bytes != 0)
 			{
 				dupBuffer_p = buffer; //check if duplicating buffer works - yes it does
-				
+				dupBuffer_p2 = buffer;
+
+				for (int j = 0; j < numFrames; j++) {
+
+				}
+
+				//crude printing loop:
 				for (int m = 0; m < numFrames; m++)
 				{
 					int sumFrame = 0;
 
-					printf("Cycle %d image %d dupBuffer: \n \n", i,m+1);
-					//print image using dupBuffer pointer
+					printf("Cycle %d image %d dupBuffer2: \n \n", i,m+1);
+					//print image using dupBuffer2 pointer
 					for (j = 0; j < 32; j++)
 					{
 						for (k = 0; k < 64; k++)
 						{
-							printf("%d ", *dupBuffer_p);
-							sumFrame += *dupBuffer_p;
-							dupBuffer_p++;
+							printf("%d ", *dupBuffer_p2);
+							sumFrame += *dupBuffer_p2;
+							dupBuffer_p2++;
 						}
 						printf("\n");
 					}
 					printf("Sum of this frame = %d \n \n", sumFrame);
 
 				}
+				printf("%c ", *dupBuffer_p);
 				break;
 
 			}
@@ -138,12 +165,7 @@ int main(void)
 	//----------------------------
 	if (spc3)
 		SPC3_Destr(spc3);
-	free(Img);
 	//free(dupBuffer_p);
-//	free(Imgd);
-//	free(data);
-//	free(y);
-//	free(x);
 	spc3 = NULL;
 	printf("Press ENTER to continue\n");
 	getchar();
