@@ -24,7 +24,7 @@
 #endif
 
 //define function to only keep those frames with certain number of detections:
-int NdetsFilter(const int Ndets,const int ImgSize, std::vector<int> NdetsCoords, unsigned char* buffercopy)
+int NdetsFilter(const int Ndets,const int ImgSize, std::vector<int> & NdetsCoords, unsigned char* & buffercopy)
 {
 	//make sure to pass NdetsCoords as reference
 	//make sure buffer copy is correct at input
@@ -36,14 +36,14 @@ int NdetsFilter(const int Ndets,const int ImgSize, std::vector<int> NdetsCoords,
 		if (*buffercopy > 1) {
 			// multiple dets on same pixel (should never be possible for int time < dead time)
 			output = 3;
-			break;
+			return output;
 		}
 		else if (*buffercopy == 1) {
 			detsThisFrame++;
 			if (detsThisFrame > Ndets) {
 				// more than Ndets detections
 				output = 2;
-				break;
+				return output;
 			}
 			NdetsCoords[detsThisFrame - 1] = i;
 		}
@@ -101,6 +101,12 @@ int main(void)
 	SPC3_Set_DeadTime(spc3, 100);
 	SPC3_Apply_settings(spc3);
 
+	const int coincWanted = 2; //how many detections to make a coincidence (ie 2, for 20+02 state)
+	const int pixelsPerFrame = 2048, bytesPerPixel = 1; //hardcoded for now - adjust as necessary
+	const int bytesPerFrame = pixelsPerFrame * bytesPerPixel;
+	//int coordsCoinc[coincWanted];
+	std::vector<int> coordsCoinc[coincWanted];
+	
 	//start continuous acquisition
 	
 	SPC3_Start_ContAcq_in_Memory(spc3);
@@ -111,9 +117,7 @@ int main(void)
 			total_bytes = total_bytes + read_bytes;
 			printf("Acquired %f bytes in %d readout operation\n", total_bytes, i);
 
-
-			//for now assume that pixel values are 8bit, and that always full sensor is acquired i.e. bytes/frame = 2048
-			double numFramesdbl = read_bytes / 2048;
+			double numFramesdbl = read_bytes / bytesPerFrame;
 			numFramesdbl += 0.5;
 			int numFrames = (int)numFramesdbl; //cast numFramesRead as integer
 			printf("Acquired %d frames this iteration\n", numFrames);
@@ -125,7 +129,7 @@ int main(void)
 				dupBuffer_p2 = buffer;
 
 				for (int j = 0; j < numFrames; j++) {
-
+					if( NdetsFilter(coincWanted, pixelsPerFrame, &coordsCoinc, &dupBuffer_p) ==0 )
 				}
 
 				//crude printing loop:
