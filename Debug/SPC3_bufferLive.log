@@ -1,0 +1,4 @@
+﻿  live_buffer.cpp
+c:\users\rcamphausen\source\repos\spc3_bufferatruntime\spc3_bufferlive\live_buffer.cpp(99): warning C4474: 'printf' : too many arguments passed for format string
+  c:\users\rcamphausen\source\repos\spc3_bufferatruntime\spc3_bufferlive\live_buffer.cpp(99): note: placeholders and their parameters expect 1 variadic arguments, but 2 were provided
+  SPC3_bufferLive.vcxproj -> C:\Users\rcamphausen\source\repos\SPC3_bufferAtRuntime\Debug\SPC3_bufferLive.exe
