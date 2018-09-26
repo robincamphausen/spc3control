@@ -56,15 +56,40 @@ int NdetsFilter(const int Ndets,const int ImgSize, std::vector<int> & NdetsCoord
 	return output;
 }
 
+//define crude printing loop function (as sanity check):
+int sanityCheckImages(const int imgWidth, const int imgHeight, unsigned char* buffer, const int numFrames, const int imgs2print) {
+	
+	for (int i = 0; i < numFrames; i++)
+	{
+		if (i < imgs2print) {
+			//printf("Image %d: \n", i + 1);
+			for (int j = 0; j < imgHeight; j++)
+			{
+				for (int k = 0; k < imgWidth; k++)
+				{
+					printf("%d ", *buffer);
+					buffer++;
+				}
+				printf("\n");
+			}
+			printf("\n");
+		}
+		
+		else
+			break;
+	}
+
+	return 0;
+}
 
 int main(void)
 {
 	// Initialise variables
 	//-----------------------------
 	SPC3_H spc3 = NULL;
-	UInt16* Img = NULL;// , hist[65535], AppliedDT = 0;
-	//char header[1024] = "";
-	int integFrames = 10;
+	UInt16* Img = NULL;
+	Img = (UInt16*)calloc(1, 2048 * sizeof(UInt16));
+
 	double read_bytes = 0, total_bytes = 0;
 	int i = 0, j = 0, k = 0, out = 0;
 	short trig = 0;
@@ -76,10 +101,7 @@ int main(void)
 
 	//define pointer where we can duplicate buffer:
 	unsigned char* dupBuffer_p = NULL;
-	unsigned char* dupBuffer_p2 = NULL; //make another buffer pointer for printing out values (can get rid of this later)
-	
-	Img = (UInt16*)calloc(1, 2048 * sizeof(UInt16));
-
+		
 	//SPC3 constructor and parameter setting (make sure you check the SPC3 ID)
 	char spc3ID[] = "1805000L20";
 	char * spc3ID_p = spc3ID;
@@ -102,13 +124,17 @@ int main(void)
 	SPC3_Apply_settings(spc3);
 
 	const int coincWanted = 2; //how many detections to make a coincidence (ie 2, for 20+02 state)
-	const int pixelsPerFrame = 2048, bytesPerPixel = 1; //hardcoded for now - adjust as necessary
+	int sanityCheckCounter = 0;
+	
+	const int imgWidth = 64, imgHeight = 32; //how many pixels is the image wide/high; hardcoded for now - adjust as necessary
+	const int pixelsPerFrame = imgWidth*imgHeight, bytesPerPixel = 1; //hardcoded for now - adjust as necessary
 	const int bytesPerFrame = pixelsPerFrame * bytesPerPixel;
-	//int coordsCoinc[coincWanted];
-	std::vector<int> coordsCoinc[coincWanted];
+	std::vector<int> coordsCoinc(coincWanted);
+	std::vector<int> coordsAll2fold; // for now just make more of these vectors if we want higher N-fold coincs
 	
+
+
 	//start continuous acquisition
-	
 	SPC3_Start_ContAcq_in_Memory(spc3);
 	for (i = 1; i < 11; i++)
 	{
@@ -122,48 +148,38 @@ int main(void)
 			int numFrames = (int)numFramesdbl; //cast numFramesRead as integer
 			printf("Acquired %d frames this iteration\n", numFrames);
 
-			//check if buffer overwrites on each call of SPC3_Get_Memory_Buffer() - yes it does
 			if (read_bytes != 0)
 			{
 				dupBuffer_p = buffer; //check if duplicating buffer works - yes it does
-				dupBuffer_p2 = buffer;
+				//sanityCheckImages(imgWidth, imgHeight, dupBuffer_p, numFrames, 3);
+				
+				for (j = 0; j < numFrames; j++) {
+					dupBuffer_p = buffer + j * pixelsPerFrame;
+					if (NdetsFilter(coincWanted, pixelsPerFrame, coordsCoinc, dupBuffer_p) == 0) {
 
-				for (int j = 0; j < numFrames; j++) {
-					if( NdetsFilter(coincWanted, pixelsPerFrame, &coordsCoinc, &dupBuffer_p) ==0 )
-				}
-
-				//crude printing loop:
-				for (int m = 0; m < numFrames; m++)
-				{
-					int sumFrame = 0;
-
-					printf("Cycle %d image %d dupBuffer2: \n \n", i,m+1);
-					//print image using dupBuffer2 pointer
-					for (j = 0; j < 32; j++)
-					{
-						for (k = 0; k < 64; k++)
-						{
-							printf("%d ", *dupBuffer_p2);
-							sumFrame += *dupBuffer_p2;
-							dupBuffer_p2++;
+						if (sanityCheckCounter < 0) { //only do sanity check few times
+							printf("condition satisfied at frame %d: \n", j + 1);
+							sanityCheckImages(imgWidth, imgHeight, buffer + j * pixelsPerFrame, numFrames, 1);
+							sanityCheckCounter++;
 						}
-						printf("\n");
+
+						for (k = 0; k < coincWanted; k++) {
+							coordsAll2fold.push_back(coordsCoinc[k]); //can add higher N-fold coinc vectors here later
+						}
+						//break;
 					}
-					printf("Sum of this frame = %d \n \n", sumFrame);
-
 				}
-				printf("%c ", *dupBuffer_p);
-				break;
-
 			}
-
 			SLEEP(1 * MILLIS);
-			
+
+			//insert code here that processes coords, upsamples and into OCM
 		}
 		else
 			break;
 	}
 	SPC3_Stop_ContAcq_in_Memory(spc3);
+
+	printf("2-fold coords vector is %d elements long. \n ", coordsAll2fold.size());
 
 	// Destructors
 	//----------------------------
