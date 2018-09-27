@@ -8,7 +8,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <vector>
-//#include <iostream>
+#include <numeric>
+#include <ctime>
+
 
 #if defined(__linux__)
 #define SLEEP usleep
@@ -82,6 +84,38 @@ int sanityCheckImages(const int imgWidth, const int imgHeight, unsigned char* bu
 	return 0;
 }
 
+//define function that upsamples N-fold coinc and calculates OCM coords
+int OCM_Nfold(const int imgWidth, const int imgHeight, const int Ndets, unsigned int & coordsIndex, const std::vector<int> & coordsCoinc, std::vector<int> & coordsOCM) {
+	//check whether length of coordsCoinc is multiple of Ndets (if no, something has gone wrong)
+	if (coordsCoinc.size() % Ndets != 0) {
+		printf("Length of coincidence coords vector not a multiple of Ndets. Check coords are being saved correctly.");
+		return 1;
+	}
+	//declare local vectors to reuse for x and y coordinates
+	std::vector<int> x(Ndets);
+	std::vector<int> y(Ndets);
+	int xOCM, yOCM, coordOCM;
+	while (coordsIndex < coordsCoinc.size()) {
+		for (int i = 0; i < Ndets; i++) {
+			x[i] = coordsCoinc[coordsIndex] % imgWidth;
+			y[i] = (coordsCoinc[coordsIndex] - x[i]) / imgHeight;
+			//upsample:
+			x[i] *= Ndets;
+			y[i] *= Ndets;
+			coordsIndex++;
+		}
+		xOCM = std::accumulate(x.begin(), x.end(), 0) / Ndets;
+		yOCM = std::accumulate(y.begin(), y.end(), 0) / Ndets;
+		//calculate coordinate of OCM (same convention as img buffer, storing image as 1D array):
+		coordOCM = yOCM * ((imgWidth - 1)*Ndets + 1) + xOCM;
+		//put OCM coordinate into the coordsOCM storage vector:
+		coordsOCM.push_back(coordOCM);
+	}
+
+	return 0;
+}
+
+
 int main(void)
 {
 	// Initialise variables
@@ -119,7 +153,7 @@ int main(void)
 								State  	Signed_data
 		)
 		*/
-	SPC3_Set_Camera_Par(spc3, 10, 20, 1, 1, Disabled, Disabled, Disabled);
+	SPC3_Set_Camera_Par(spc3, 6, 20, 1, 1, Disabled, Disabled, Disabled);
 	SPC3_Set_DeadTime(spc3, 100);
 	SPC3_Apply_settings(spc3);
 
@@ -131,55 +165,85 @@ int main(void)
 	const int bytesPerFrame = pixelsPerFrame * bytesPerPixel;
 	std::vector<int> coordsCoinc(coincWanted);
 	std::vector<int> coordsAll2fold; // for now just make more of these vectors if we want higher N-fold coincs
+	unsigned int coords2fold_index = 0; // index to keep track of coinc coords in storage vector
+	std::vector<int> OCM_2fold; // for now just make more of these vectors if we want higher N-fold OCM
 	
+	//timing
+	int activeTime, resetTime, totalActive =0, totalReset = 0;
 
+	//try looping whole thing
+	for (int outerloop = 0; outerloop < 10; outerloop++) {
 
-	//start continuous acquisition
-	SPC3_Start_ContAcq_in_Memory(spc3);
-	for (i = 1; i < 11; i++)
-	{
-		if (SPC3_Get_Memory_Buffer(spc3, &read_bytes, &buffer) == OK)
+		//start continuous acquisition
+		std::clock_t time_start = std::clock();
+		SPC3_Start_ContAcq_in_Memory(spc3);
+		std::clock_t time_gogo = std::clock();
+		for (i = 1; i < 1001; i++)
 		{
-			total_bytes = total_bytes + read_bytes;
-			printf("Acquired %f bytes in %d readout operation\n", total_bytes, i);
-
-			double numFramesdbl = read_bytes / bytesPerFrame;
-			numFramesdbl += 0.5;
-			int numFrames = (int)numFramesdbl; //cast numFramesRead as integer
-			printf("Acquired %d frames this iteration\n", numFrames);
-
-			if (read_bytes != 0)
+			if (SPC3_Get_Memory_Buffer(spc3, &read_bytes, &buffer) == OK)
 			{
-				dupBuffer_p = buffer; //check if duplicating buffer works - yes it does
-				//sanityCheckImages(imgWidth, imgHeight, dupBuffer_p, numFrames, 3);
-				
-				for (j = 0; j < numFrames; j++) {
-					dupBuffer_p = buffer + j * pixelsPerFrame;
-					if (NdetsFilter(coincWanted, pixelsPerFrame, coordsCoinc, dupBuffer_p) == 0) {
+				total_bytes = total_bytes + read_bytes;
+				/*if(i%20 == 0)
+					printf("Acquired %f bytes in %d readout operation\n", total_bytes, i);*/
 
-						if (sanityCheckCounter < 0) { //only do sanity check few times
-							printf("condition satisfied at frame %d: \n", j + 1);
-							sanityCheckImages(imgWidth, imgHeight, buffer + j * pixelsPerFrame, numFrames, 1);
-							sanityCheckCounter++;
-						}
+				double numFramesdbl = read_bytes / bytesPerFrame;
+				numFramesdbl += 0.5;
+				int numFrames = (int)numFramesdbl; //cast numFramesRead as integer
+				/*if (i % 20 == 0)
+					printf("Acquired %d frames this iteration\n", numFrames);*/
 
-						for (k = 0; k < coincWanted; k++) {
-							coordsAll2fold.push_back(coordsCoinc[k]); //can add higher N-fold coinc vectors here later
+				if (read_bytes != 0)
+				{
+					dupBuffer_p = buffer; //check if duplicating buffer works - yes it does
+					//sanityCheckImages(imgWidth, imgHeight, dupBuffer_p, numFrames, 3);
+
+					for (j = 0; j < numFrames; j++) {
+						dupBuffer_p = buffer + j * pixelsPerFrame;
+						if (NdetsFilter(coincWanted, pixelsPerFrame, coordsCoinc, dupBuffer_p) == 0) {
+
+							if (sanityCheckCounter < 0) { //only do sanity check few times
+								printf("condition satisfied at frame %d: \n", j + 1);
+								sanityCheckImages(imgWidth, imgHeight, buffer + j * pixelsPerFrame, numFrames, 1);
+								sanityCheckCounter++;
+							}
+
+
+							for (k = 0; k < coincWanted; k++) {
+								coordsAll2fold.push_back(coordsCoinc[k]); //can add higher N-fold coinc vectors here later
+							}
+
 						}
-						//break;
 					}
 				}
+				//SLEEP(1 * MILLIS);
+
+				//process coords, upsample and put into N-fold OCM coords storage vector:
+
+				if (OCM_Nfold(imgWidth, imgHeight, coincWanted, coords2fold_index, coordsAll2fold, OCM_2fold) != 0) {
+					break;
+				}
 			}
-			SLEEP(1 * MILLIS);
-
-			//insert code here that processes coords, upsamples and into OCM
+			else {
+				printf("%f bytes from last readout operation\n", read_bytes);
+				break;
+			}
 		}
-		else
-			break;
-	}
-	SPC3_Stop_ContAcq_in_Memory(spc3);
+		std::clock_t time_done = std::clock();
+		SPC3_Stop_ContAcq_in_Memory(spc3);
+		std::clock_t time_stopped = std::clock();
 
-	printf("2-fold coords vector is %d elements long. \n ", coordsAll2fold.size());
+		activeTime = time_done - time_gogo;
+		resetTime = time_stopped - time_start - activeTime;
+		printf("%d , %d , %d \n", activeTime, resetTime, activeTime / resetTime);
+		totalActive += activeTime;
+		totalReset += resetTime;
+
+		printf("Acquired %f bytes in %d readout operation\n \n", total_bytes, i);
+	}
+
+	printf("%d , %d , %d \n", totalActive, totalReset, totalActive / totalReset);
+	printf("2-fold coords vector is %d elements long. \n", coordsAll2fold.size());
+	printf("2-fold OCM vector is %d elements long. \n", OCM_2fold.size());
 
 	// Destructors
 	//----------------------------
