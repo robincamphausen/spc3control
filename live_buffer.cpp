@@ -26,6 +26,7 @@
 #endif
 
 //define function to only keep those frames with certain number of detections:
+// try converting to 1bit for speed improvement:
 int NdetsFilter(const int Ndets,const int ImgSize, std::vector<int> & NdetsCoords, unsigned char* & buffercopy)
 {
 	//make sure to pass NdetsCoords as reference
@@ -172,7 +173,7 @@ int main(void)
 	int activeTime, resetTime, totalActive =0, totalReset = 0;
 
 	//try looping whole thing
-	for (int outerloop = 0; outerloop < 10; outerloop++) {
+	for (int outerloop = 0; outerloop < 5; outerloop++) {
 
 		//start continuous acquisition
 		std::clock_t time_start = std::clock();
@@ -201,7 +202,7 @@ int main(void)
 						dupBuffer_p = buffer + j * pixelsPerFrame;
 						if (NdetsFilter(coincWanted, pixelsPerFrame, coordsCoinc, dupBuffer_p) == 0) {
 
-							if (sanityCheckCounter < 0) { //only do sanity check few times
+							if (sanityCheckCounter < 3) { //only do sanity check few times
 								printf("condition satisfied at frame %d: \n", j + 1);
 								sanityCheckImages(imgWidth, imgHeight, buffer + j * pixelsPerFrame, numFrames, 1);
 								sanityCheckCounter++;
